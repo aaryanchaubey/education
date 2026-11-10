@@ -1,37 +1,38 @@
-# Claude → YouTube + Instagram video automation
+# Claude → YouTube + Instagram, with your own MCP server
 
-Make a video with Claude Code, then say **"post it to YouTube and Instagram"**. Claude:
-
-1. Makes the video with your skills: **faceless-shorts** (narrated 9:16 shorts) or **ai-video-editor** (edits your talking-head recordings, 16:9). The 7 style prompts also work as slash commands (for example `/kinetic-video my topic`).
-2. Checks the MP4 meets YouTube and Instagram Reels requirements, and re-encodes it if needed (`check_video.sh`).
-3. Uploads it to **Google Drive** (`Social Uploads/<date>/`) and makes a direct link (`drive_upload.sh`, using rclone).
-4. Shows you the title, caption, tags and privacy, and **waits for your OK**.
-5. Posts through the **Zapier MCP**: YouTube "Upload Video" and Instagram for Business "Publish Video" (Reel). Then it gives you both links.
+Make a video with Claude Code, then say **"post it to YouTube and Instagram"**. No Zapier and no paid middleman:
+`social-mcp` is a small MCP server in this repo that runs on your computer and calls the official APIs
+(YouTube Data API v3, Meta Instagram Graph API, Google Drive API) with **your own** credentials.
 
 ```
-Claude Code ──skills──▶ MP4 ──rclone──▶ Google Drive (public link)
-     │                                           │
-     └──Zapier MCP──▶ YouTube Upload Video ◀─────┤
-                  └─▶ Instagram Publish Video ◀──┘
+Claude Code ──skills──▶ MP4 on your computer
+     │
+     └── social MCP server (runs locally, stdio)
+           ├─ youtube_upload ─────────▶ YouTube Data API (resumable upload of the local file)
+           ├─ instagram_publish_reel ─▶ Instagram Graph API (direct upload, or a temporary Drive link)
+           ├─ drive_upload ───────────▶ Google Drive API (archive copies)
+           └─ check_video / transcode_video / status / instagram_publishing_limit
 ```
 
-Zapier's servers can't read files on your computer, so Drive provides the URL they download from.
-
-**Start here: [SETUP.md](SETUP.md)** (about 20 minutes, done once).
+**Start here: [SETUP.md](SETUP.md)** (about 30–40 minutes, done once).
 
 ## What's in this repo
 | Path | What it is |
 |---|---|
-| `skills/social-publisher/` | The publishing skill: `SKILL.md`, `scripts/check_video.sh`, `scripts/drive_upload.sh` |
-| `install.sh` | Installs the skills, slash commands and Zapier MCP into `~/.claude` |
-| `.mcp.json` | Adds the Zapier MCP to Claude Code when you run Claude Code inside this folder |
+| `mcp-server/` | The `social-mcp` server and CLI (Python, official `mcp` SDK). Tests: `cd mcp-server && uv run pytest` |
+| `skills/social-publisher/` | Skill that tells Claude how to publish safely: check → propose → wait for OK → post |
+| `install.sh` | Installs the server, skills, prompt slash commands and the Claude Code MCP registration |
 | `private/` | Put your skill zips and prompt `.txt` files here. Git ignores this folder because the repo is public. |
 
 ## Daily use
 ```
 claude
 > Make a Deep Dive 3D short: what happens if you crack your knuckles?
-> (approve the script, review the render)
 > Post it to YouTube (unlisted) and Instagram
 ```
-For a recording: `> Edit my video ~/Videos/raw.mp4`, then `> publish it to YouTube`.
+Claude shows the title, caption, tags and privacy, and posts only after you say yes. Claude Code also asks permission
+before each tool call, unless you've allowed that tool.
+
+## Where your keys live
+`~/.config/social-mcp/` (file mode 600): Google OAuth client and token, Instagram token. Nothing is sent anywhere
+except Google and Meta. Run `social-mcp status` at any time to see what's connected.

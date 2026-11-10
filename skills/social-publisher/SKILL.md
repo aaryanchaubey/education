@@ -1,74 +1,47 @@
 ---
 name: social-publisher
-description: Publish a finished MP4 to YouTube and/or Instagram (Reels) through the Zapier MCP, hosting it on Google Drive first. Use when the user asks to upload, post or publish a video (for example one made with faceless-shorts or ai-video-editor) to YouTube, Instagram, or both.
+description: Publish a finished MP4 to YouTube and/or Instagram Reels (and optionally archive it on Google Drive) through the self-hosted `social` MCP server. Use when the user asks to upload, post or publish a video, for example one made with faceless-shorts or ai-video-editor.
 ---
 
-# Social Publisher (Google Drive → YouTube + Instagram via Zapier MCP)
+# Social Publisher (own MCP server: YouTube + Instagram + Google Drive)
 
-`SKILL` means this skill's folder (usually `~/.claude/skills/social-publisher`). Scripts print plain text; read
-their output before the next step. This skill writes to the user's real accounts: **never post without an explicit
-confirmation of the exact title, caption, visibility and platforms in this conversation.**
+The `social` MCP server talks to the YouTube Data API, Meta's Instagram Graph API and the Google Drive API with the
+user's own credentials (no Zapier or other middleman). Its tools post to the user's **real accounts**:
+**never call `youtube_upload` or `instagram_publish_reel` without an explicit OK in this conversation for the exact
+file, title/caption, tags and privacy.**
 
-## 0. Preconditions (check once per session)
-1. Zapier MCP is connected: Zapier tools are listed (e.g. `discover_zapier_actions`, `execute_zapier_write_action`,
-   or per-action tools such as `youtube_upload_video`). If not, tell the user to run
-   `claude mcp add --transport http zapier https://mcp.zapier.com/api/v1/connect`, restart Claude Code and sign in.
-2. `bash SKILL/scripts/drive_upload.sh --check` prints `drive ok`. If not, the user must run `rclone config` once and
-   create a Google Drive remote named `gdrive` (see the repo's SETUP.md). Never try to complete OAuth yourself.
+## 0. Check connections
+Call `status`. If a service says "not connected", tell the user the command it prints (`social-mcp auth google` or
+`social-mcp auth instagram --api ...`), to be run in their own terminal (it opens a browser or asks for a token). Never try
+to complete a login yourself. If the `social` tools are missing entirely, the server isn't installed: point to SETUP.md.
 
 ## 1. Check the file
-`bash SKILL/scripts/check_video.sh <file.mp4>` reports duration, size, resolution, codecs and what each platform
-accepts. If it says `NEEDS TRANSCODE`, run the `ffmpeg` command it prints and use the new file. `NOT POSTABLE TO INSTAGRAM`
-means YouTube only (or trim it, with the user's OK).
-- YouTube: a vertical (9:16) video of 3 min or less becomes a Short automatically; 16:9 is a normal video.
-- Instagram Reels: H.264 + AAC MP4, 3 s to 15 min, under 300 MB; 9:16 looks best (16:9 is letterboxed).
+`check_video(path)`. If `needs_transcode` is true, call `transcode_video(path)` and use the returned `path`
+(`<name>-social.mp4`). If `instagram_ok` is false, the video can go to YouTube only (or the user can trim it).
+Vertical videos of 3 min or less become YouTube Shorts automatically. 16:9 videos are letterboxed on Instagram.
 
-## 2. Ask, then confirm (one message)
-Propose, then wait for the user's OK or edits:
-- Platforms: YouTube, Instagram, or both.
-- YouTube: title (≤ 100 chars), description (shorts: end with `#shorts`), 5-8 tags, category
-  (Education 27, Comedy 23, Science & Tech 28, People & Blogs 22), privacy (`private` / `unlisted` / `public`,
-  default `private`), made for kids (default no).
-- Instagram: caption (≤ 2,200 chars, 5-8 hashtags at the end). Instagram has no private option: it posts publicly.
-- Drive: the file is shared as "anyone with the link can view" (needed so Zapier can fetch it).
+## 2. Propose, then wait for the OK (one message)
+- Platforms: YouTube, Instagram, or both. Also save a copy to Drive? (default no)
+- YouTube: title (≤ 100 chars), description (Shorts: end with `#shorts`), 5-8 tags, category (27 Education,
+  28 Science & Tech, 23 Comedy, 24 Entertainment, 22 People & Blogs), privacy (`private` / `unlisted` / `public`,
+  default `private`), optional schedule (`publish_at` RFC 3339, needs `private`), optional thumbnail (cover frame PNG/JPG).
+- Instagram: caption (≤ 2,200 chars, hashtags at the end). Reels are always **public**: say so.
 
-## 3. Host on Google Drive
-`bash SKILL/scripts/drive_upload.sh <file.mp4>` uploads to `gdrive:Social Uploads/<date>/`, shares it and prints
-`DIRECT_URL=<url>`. It verifies that the URL serves video bytes; if it fails, the output says so. Drive direct links
-work for files under ~100 MB (bigger files hit Google's virus-scan page).
-**Fallback** (only with the user's OK, since it's a public temp host that expires):
-`curl -F "reqtype=fileupload" -F "time=24h" -F "fileToUpload=@<file.mp4>" https://litterbox.catbox.moe/resources/internals/api.php`
-then `curl -sSI <url>` must show 200 and a `video/` content type.
+## 3. Publish (one platform at a time, stop at the first error)
+- `youtube_upload(path, title, description, tags, category_id, privacy_status, ...)` → `url`, `shorts_url`.
+- `instagram_publish_reel(path, caption)` → `permalink`. It waits for Instagram's processing (up to ~15 min).
+  On Instagram Login accounts it briefly shares the file from Drive and removes the share afterwards.
+  **Never retry automatically** after an error or timeout: the Reel may still appear. Ask the user to check the profile first.
+- `drive_upload(path)` → archive copy in `Social Uploads/<date>/` (private unless `share_public=true`).
 
-## 4. Publish through Zapier MCP
-Zapier exposes either per-action tools or meta-tools; use what is present. With meta-tools (they may be Code Mode
-tools called as `tools.zapier.*` inside `execute`; follow the client's convention):
-1. If `list_zapier_skills` shows a saved skill for these uploads, use it.
-2. Discover and enable: `discover_zapier_actions({ app: "YouTube" })` and `({ app: "Instagram for Business" })`,
-   then `enable_zapier_action` for **YouTube → Upload Video** and **Instagram for Business → Publish Video**.
-   Use the `selected_api`, action and tool names that discovery returns; don't guess them.
-   YouTube was validated as `selected_api: "YouTubeV4CLIAPI"`, `action: "upload_video"`, `tool_name: "youtube_upload_video"`.
-3. No connection yet? `manage_zapier_connections({ selected_api })` returns a connect URL: give it to the user and wait.
-4. Resolve dropdown values with `inspect_zapier_actions` (e.g. `enum_property: "category_id"`, Instagram account).
-5. Execute:
-   - YouTube `upload_video` params: `video: DIRECT_URL, title, description, tags, category_id, privacy_status,
-     made_for_kids: false, embeddable: true, notify_subscribers: true, default_language, license: "youtube"`.
-   - Instagram `publish_video` params: `video: DIRECT_URL, caption` (+ the account field if discovery lists one).
-   Run them one at a time, and stop on the first error.
-
-## 5. Report
-- YouTube: the result's `id` → `https://www.youtube.com/watch?v=<id>` (Shorts also open at `/shorts/<id>`).
-- Instagram: the result's `permalink` (or `id`). Reels can take a minute or two to process after the call returns.
-- Tell the user the Drive file stays shared by link. Once both platforms have processed it, they can set it to
-  "Restricted" in Drive, or you can delete it with `rclone deletefile "<DRIVE_PATH>"` if they ask.
+## 4. Report
+Give each link. YouTube may show "processing" for a few minutes; Instagram Reels can take a minute to appear on the profile.
 
 ## Errors
-- Instagram "media type" / "processing failed": re-encode with the command `check_video.sh` prints (H.264 High,
-  yuv420p, AAC 48 kHz, `+faststart`) and re-upload; make sure the account is **Business** and linked to a Facebook Page.
-- YouTube `uploadLimitExceeded` / quota errors: the channel hit its daily limit; try again tomorrow.
-- A Zapier error that mentions fetching the file: the URL isn't a raw file. Re-run `drive_upload.sh` or use the fallback host.
-
-## Never
-Post without confirmation; make a YouTube video public when the user said private/unlisted; retry a failed
-Instagram publish more than once without telling the user (it may have posted anyway: check the profile first);
-share any file other than the one being published.
+- Google "quotaExceeded" / "uploadLimitExceeded": the daily upload limit was hit; try tomorrow.
+- Google "invalid_grant" / "login expired": the user runs `social-mcp auth google` again (the Google Cloud app must be
+  "In production", otherwise logins expire every 7 days; see SETUP.md).
+- Instagram "Invalid OAuth access token" / expired: Instagram Login → `social-mcp refresh instagram` (or re-run auth);
+  Facebook Login → re-run `social-mcp auth instagram --api facebook`.
+- Instagram processing `ERROR`: re-encode with `transcode_video` and try once more, with the user's OK.
+- `instagram_publishing_limit` shows the 24-hour posting quota.
