@@ -14,7 +14,8 @@ Claude Code ──skills──▶ MP4 on your computer
            └─ check_video / transcode_video / status / instagram_publishing_limit
 ```
 
-**Start here: [SETUP.md](SETUP.md)** (about 30–40 minutes, done once).
+**Start here: [SETUP.md](SETUP.md)** (about 30–40 minutes, done once). On Windows: [WINDOWS.md](WINDOWS.md).
+To run everything in Hoplite instead of on your PC: [HOSTED.md](HOSTED.md).
 
 ## What's in this repo
 | Path | What it is |

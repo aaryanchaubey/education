@@ -7,6 +7,7 @@ Two account setups are supported (stored in instagram.json by `social-mcp auth i
 """
 from __future__ import annotations
 
+import os
 import time
 
 import httpx
@@ -24,9 +25,23 @@ class GraphError(RuntimeError):
 
 def settings() -> dict:
     s = config.load_json(CONFIG)
+    if not s and os.environ.get("SOCIAL_MCP_INSTAGRAM_TOKEN"):
+        # Hosted use: token and account id come from secrets/project variables.
+        s = {"api": os.environ.get("SOCIAL_MCP_INSTAGRAM_API", "instagram"),
+             "access_token": os.environ["SOCIAL_MCP_INSTAGRAM_TOKEN"],
+             "user_id": os.environ.get("SOCIAL_MCP_INSTAGRAM_USER_ID") or _lookup_user_id(os.environ["SOCIAL_MCP_INSTAGRAM_TOKEN"]),
+             "graph_version": os.environ.get("SOCIAL_MCP_INSTAGRAM_GRAPH_VERSION", DEFAULT_VERSION)}
     if not s or not s.get("access_token") or not s.get("user_id"):
-        raise config.NotConfigured("Instagram is not connected. Run: social-mcp auth instagram")
+        raise config.NotConfigured("Instagram is not connected. Run: social-mcp auth instagram (or set SOCIAL_MCP_INSTAGRAM_TOKEN)")
     return s
+
+
+def _lookup_user_id(token: str) -> str:
+    if os.environ.get("SOCIAL_MCP_INSTAGRAM_API", "instagram") != "instagram":
+        raise config.NotConfigured("Set SOCIAL_MCP_INSTAGRAM_USER_ID for Facebook Login tokens")
+    g = Graph({"api": "instagram", "access_token": token, "user_id": ""})
+    me = g.get("me", fields="user_id,username")
+    return str(me.get("user_id") or me["id"])
 
 
 class Graph:
