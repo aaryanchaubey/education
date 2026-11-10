@@ -13,6 +13,11 @@ CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 SKILLS="$CLAUDE_HOME/skills"; CMDS="$CLAUDE_HOME/commands"
 mkdir -p "$SKILLS" "$CMDS"
 
+if ! command -v uv >/dev/null; then
+  echo "uv MISSING: install it (Windows PowerShell: winget install astral-sh.uv · macOS/Linux: curl -LsSf https://astral.sh/uv/install.sh | sh), open a new terminal, re-run"
+  exit 1
+fi
+
 install_dir() { rm -rf "$SKILLS/$2"; cp -R "$1" "$SKILLS/$2"; echo "skill    $2"; }
 
 install_dir "$REPO/skills/social-publisher" social-publisher
@@ -21,7 +26,8 @@ if [ -d "$SRC" ]; then
   shopt -s nullglob
   for z in "$SRC"/*.zip; do
     tmp=$(mktemp -d)
-    unzip -q "$z" -d "$tmp"
+    # Git Bash on Windows has no unzip; uv's Python is always available here.
+    uv run --no-project --quiet python -m zipfile -e "$z" "$tmp"
     for d in "$tmp"/*/; do
       [ -f "$d/SKILL.md" ] && install_dir "${d%/}" "$(basename "$d")"
     done
@@ -44,13 +50,10 @@ if [ -f "$FS" ] && ! grep -q "social-publisher" "$FS"; then
     "$FS" >"$FS.tmp" && mv "$FS.tmp" "$FS" && echo "patched  faceless-shorts -> social-publisher"
 fi
 
-if ! command -v uv >/dev/null; then
-  echo "uv MISSING: install it (macOS/Linux: curl -LsSf https://astral.sh/uv/install.sh | sh · Windows: winget install astral-sh.uv), then re-run"
-  exit 1
-fi
 uv tool install --force --quiet "$REPO/mcp-server"
 BIN="$(uv tool dir --bin)/social-mcp"
 [ -x "$BIN" ] || BIN="$BIN.exe"
+command -v cygpath >/dev/null && BIN="$(cygpath -w "$BIN")"   # Git Bash: Claude Code needs a Windows path
 echo "server   $BIN"
 
 if command -v claude >/dev/null; then
@@ -61,5 +64,5 @@ else
   echo "mcp      'claude' CLI not found: install Claude Code, then run: claude mcp add --scope user social -- \"$BIN\""
 fi
 
-for t in ffmpeg node python3; do command -v "$t" >/dev/null && echo "tool     $t ok" || echo "tool     $t MISSING (see SETUP.md)"; done
+for t in ffmpeg ffprobe node; do command -v "$t" >/dev/null && echo "tool     $t ok" || echo "tool     $t MISSING (see SETUP.md)"; done
 echo "Done. Next: SETUP.md steps 3-5 (Google + Meta credentials, then: social-mcp auth google / social-mcp auth instagram)."

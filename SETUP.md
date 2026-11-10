@@ -1,5 +1,7 @@
 # Setup (once, on your own computer)
 
+**On Windows? Follow [WINDOWS.md](WINDOWS.md)**, which gives exact commands for each step and links back here for the Google and Meta app setup.
+
 ## 1. Tools
 | Tool | macOS | Windows (use Git Bash) | Linux |
 |---|---|---|---|
